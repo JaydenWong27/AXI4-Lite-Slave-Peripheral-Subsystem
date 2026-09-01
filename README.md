@@ -39,14 +39,6 @@ Implemented:
 - Invalid address `SLVERR` responses
 - Verilator testbench with VCD waveform output
 
-Tested behavior:
-
-- Full write/read at address `0x00`
-- Partial byte write using `WSTRB`
-- Register access at `0x04`, `0x08`, and `0x0C`
-- Address-first write transaction
-- Data-first write transaction
-- Invalid write/read at address `0x10`
 
 ## Run Simulation
 
