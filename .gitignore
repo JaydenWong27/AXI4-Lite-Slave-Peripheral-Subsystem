@@ -1,0 +1,15 @@
+# Verilator build output
+obj_dir/
+
+# Waveforms
+*.vcd
+*.wdb
+*.fst
+
+# Vivado / xsim output
+xsim.dir/
+.Xil/
+*.jou
+*.log
+*.pb
+webtalk*

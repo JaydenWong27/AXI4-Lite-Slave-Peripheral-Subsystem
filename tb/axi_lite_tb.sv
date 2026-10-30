@@ -11,12 +11,20 @@ module axi_lite_tb;
         .ARESETN(ARESETN)
     );
 
+    logic [31:0] reg_out0;
+    logic [31:0] reg_out1;
+    logic [31:0] gpio_in;
+
     axi_lite_slave dut (
-        .bus(bus)
+        .bus(bus),
+        .reg_out0(reg_out0),
+        .reg_out1(reg_out1),
+        .gpio_in(gpio_in)
     );
 
     initial begin
         ARESETN = 1'b0;
+        gpio_in = '0;
 
         bus.AWADDR = '0;
         bus.AWPROT = '0;
@@ -226,8 +234,8 @@ module axi_lite_tb;
             $display("Register 1 test passed: 0x%08h", read_data);
         end
 
-        axi_write_addr_first(32'h0000_0008, 32'h1111_2222, 4'b1111);
-        axi_read(32'h0000_0008, read_data, read_resp);
+        axi_write_addr_first(32'h0000_0000, 32'h1111_2222, 4'b1111);
+        axi_read(32'h0000_0000, read_data, read_resp);
 
         if (read_resp !== 2'b00) begin
             $error("Read response failed: expected OKAY, got 0b%02b", read_resp);
@@ -252,6 +260,46 @@ module axi_lite_tb;
                 32'h3333_4444, read_data);
         end else begin
             $display("Data-first write passed: 0x%08h", read_data);
+        end
+
+        // Register outputs to the GPIO block should mirror registers 0 and 1
+        if (reg_out0 !== 32'h1111_2222 || reg_out1 !== 32'hCAFE_BABE) begin
+            $error("Register outputs failed: reg_out0=0x%08h reg_out1=0x%08h",
+                reg_out0, reg_out1);
+        end else begin
+            $display("Register outputs passed: reg_out0=0x%08h reg_out1=0x%08h",
+                reg_out0, reg_out1);
+        end
+
+        // Register 2 is read-only and returns gpio_in
+        gpio_in = 32'hA5A5_5A5A;
+        axi_read(32'h0000_0008, read_data, read_resp);
+
+        if (read_resp !== 2'b00) begin
+            $error("GPIO input read response failed: expected OKAY, got 0b%02b", read_resp);
+        end
+
+        if (read_data !== 32'hA5A5_5A5A) begin
+            $error("GPIO input read failed: expected 0x%08h, got 0x%08h",
+                32'hA5A5_5A5A, read_data);
+        end else begin
+            $display("GPIO input read passed: 0x%08h", read_data);
+        end
+
+        axi_write(32'h0000_0008, 32'hFFFF_FFFF, 4'b1111, write_resp);
+
+        if (write_resp !== 2'b10) begin
+            $error("Read-only write response failed: expected SLVERR, got 0b%02b",
+                write_resp);
+        end else begin
+            $display("Read-only write correctly returned SLVERR");
+        end
+
+        axi_read(32'h0000_0008, read_data, read_resp);
+
+        if (read_data !== 32'hA5A5_5A5A) begin
+            $error("Read-only register changed: expected 0x%08h, got 0x%08h",
+                32'hA5A5_5A5A, read_data);
         end
 
         axi_write(32'h0000_0010, 32'hFFFF_FFFF, 4'b1111, write_resp);
@@ -281,7 +329,7 @@ module axi_lite_tb;
     end
 
     initial begin
-        #1000;
+        #5000;
         $error("Simulation timeout");
         $finish;
     end

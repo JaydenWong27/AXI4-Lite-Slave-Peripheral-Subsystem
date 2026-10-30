@@ -6,7 +6,7 @@
 //   [1] DIRECTION   - Pin direction (1=output, 0=input)
 //   [2] DATA_IN     - Sampled input data (read-only)
 //   [3] CONFIG      - Reserved for future use
-
+`default_nettype none
 module gpio_block #(
     parameter int DATA_WIDTH = 32   // GPIO pin count
 )(
@@ -20,7 +20,10 @@ module gpio_block #(
     // GPIO pins (open-drain or tri-state capable)
     output logic [DATA_WIDTH-1:0] gpio_o,      // Output values
     output logic [DATA_WIDTH-1:0] gpio_oe_n,   // Output enable (active low)
-    input  logic [DATA_WIDTH-1:0] gpio_i       // Input samples
+    input  logic [DATA_WIDTH-1:0] gpio_i,       // Input samples
+
+    // output port
+    output logic [DATA_WIDTH-1:0] gpio_in_sync
 );
 
     // Simple combinational logic: drive outputs based on registers
@@ -28,18 +31,16 @@ module gpio_block #(
     assign gpio_oe_n = ~direction_reg;
     assign gpio_o = data_out_reg & direction_reg;  // Only drive when output-enabled
 
-    // Input sampling: capture external GPIO state synchronously
-    logic [DATA_WIDTH-1:0] gpio_sync;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            gpio_sync <= '0;
-        end else begin
-            gpio_sync <= gpio_i;
-        end
-    end
-
-    // Export synchronized input for reads (would be register[2] in slave)
-    // Note: In integration, connect this back to slave.regs[2] for software to read
+    // Input sampling: gpio_i is asynchronous, so pass it through a two-flop synchronizer
+    sync_2ff #(
+        .WIDTH(DATA_WIDTH)
+    ) gpio_in_sync_inst (
+        .clk(clk),
+        .rst_n(rst_n),
+        .d(gpio_i),
+        .q(gpio_in_sync)
+    );
 
 endmodule
+`default_nettype wire

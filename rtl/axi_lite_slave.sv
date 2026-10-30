@@ -9,18 +9,28 @@
 //
 // Address Mapping:
 //   Registers are word-aligned at offsets 0x0, 0x4, 0x8, ..., up to (NUM_REGS-1)*4.
+//   Register 2 (0x8) is read-only and returns gpio_in; writes to it return SLVERR.
 //   Out-of-range accesses return an error response and do not modify registers.
-
+`default_nettype none
 module axi_lite_slave #(
     parameter int ADDR_WIDTH = 32,      // AXI address bus width (typically 32)
     parameter int DATA_WIDTH = 32,      // AXI data bus width (must be multiple of 8)
     parameter int NUM_REGS = 4          // Number of 32-bit registers to implement
 )(
-    axi_lite_if.slave bus
+    axi_lite_if.slave bus,
+    output logic [DATA_WIDTH-1:0] reg_out0,   // Register 0 to GPIO data out
+    output logic [DATA_WIDTH-1:0] reg_out1,   // Register 1 to GPIO direction
+    input  logic [DATA_WIDTH-1:0] gpio_in     // Synchronized GPIO input, read at register 2
 );
+
+    // Register 2 is the read-only GPIO input register
+    localparam int GPIO_IN_IDX = 2;
 
     // Register storage: array of NUM_REGS words
     logic [DATA_WIDTH-1:0] regs [NUM_REGS];
+
+    assign reg_out0 = regs[0];
+    assign reg_out1 = regs[1];
 
     // Derived parameters for address decoding
     localparam int ADDR_LSB = $clog2(DATA_WIDTH / 8);          // Bit offset of first register index bit
@@ -87,7 +97,7 @@ module axi_lite_slave #(
 
             // Write response: when both address and data are valid, perform write and send response
             if (write_addr_valid && write_data_valid && !bus.BVALID) begin
-                if (write_addr_in_range) begin
+                if (write_addr_in_range && write_index != GPIO_IN_IDX) begin
                     // Byte-granular write: only update bytes indicated by WSTRB
                     for (int byte_idx = 0; byte_idx < DATA_WIDTH / 8; byte_idx++) begin
                         if (write_strb[byte_idx]) begin
@@ -96,7 +106,7 @@ module axi_lite_slave #(
                     end
                     bus.BRESP <= 2'b00;  // OKAY response
                 end else begin
-                    bus.BRESP <= 2'b10;  // SLVERR response for out-of-range
+                    bus.BRESP <= 2'b10;  // SLVERR: out of range or read-only register
                 end
 
                 bus.BVALID <= 1'b1;
@@ -109,19 +119,26 @@ module axi_lite_slave #(
                 bus.BVALID <= 1'b0;
             end
 
-            // Read data capture: when ARVALID and no read response pending, fetch data and send response
-            if (!bus.RVALID && bus.ARVALID) begin
+            // Read address handshake, then read response one cycle later
+            // (RVALID must not assert until the AR handshake has completed)
+            if (bus.ARVALID && !bus.ARREADY && !bus.RVALID) begin
                 bus.ARREADY <= 1'b1;
+            end
 
+            if (bus.ARVALID && bus.ARREADY) begin
                 if (read_addr_in_range) begin
-                    bus.RDATA <= regs[bus.ARADDR[ADDR_LSB +: REG_INDEX_WIDTH]];
-                    bus.RRESP <= 2'b00;  // OKAY response
+                    if (bus.ARADDR[ADDR_LSB +: REG_INDEX_WIDTH] != GPIO_IN_IDX) begin
+                        bus.RDATA <= regs[bus.ARADDR[ADDR_LSB +: REG_INDEX_WIDTH]];
+                    end else begin
+                        bus.RDATA <= gpio_in;
+                    end
+                    bus.RRESP <= 2'b00;  // OKAY
                 end else begin
                     bus.RDATA <= '0;
-                    bus.RRESP <= 2'b10;  // SLVERR response for out-of-range
+                    bus.RRESP <= 2'b10;  // SLVERR
                 end
-
-                bus.RVALID <= 1'b1;
+                bus.RVALID  <= 1'b1;
+                bus.ARREADY <= 1'b0;
             end
 
             // Read data handshake: clear RVALID when master acknowledges
@@ -132,3 +149,4 @@ module axi_lite_slave #(
     end
 
 endmodule
+`default_nettype wire
