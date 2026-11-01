@@ -5,6 +5,7 @@
 //   never need to know which bus they are on, so the same classes serve both sides.
 // - is_active is set through config_db before m_agent is created; uvm_agent reads it in its
 //   own build_phase, which runs after this one (top-down).
+// - s_agent.ap feeds both the scoreboard and coverage: the monitor knows neither of them.
 class axi_lite_env extends uvm_env;
     `uvm_component_utils(axi_lite_env)
 
@@ -14,6 +15,8 @@ class axi_lite_env extends uvm_env;
 
     axi_lite_agent m_agent;
     axi_vif_t m_vif;
+
+    axi_lite_coverage cov;
 
     function new(string name, uvm_component parent);
         super.new(name, parent);
@@ -36,7 +39,8 @@ class axi_lite_env extends uvm_env;
         uvm_config_db#(uvm_active_passive_enum)::set(this, "m_agent", "is_active", UVM_PASSIVE);
         m_agent = axi_lite_agent::type_id::create("m_agent", this);
         uvm_config_db#(axi_vif_t)::set(this, "m_agent.*", "vif", m_vif);
-        
+
+        cov = axi_lite_coverage::type_id::create("cov", this);
     endfunction
 
     function void connect_phase(uvm_phase phase);
@@ -44,6 +48,7 @@ class axi_lite_env extends uvm_env;
         super.connect_phase(phase);
         s_agent.ap.connect(sb.s_imp);
         m_agent.ap.connect(sb.m_imp);
+        s_agent.ap.connect(cov.analysis_export);   // same port, second subscriber
 
     endfunction
 
